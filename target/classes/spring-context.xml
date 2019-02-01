@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+	xmlns:p="http://www.springframework.org/schema/p"
+	xmlns:context="http://www.springframework.org/schema/context"
+	xmlns:aop="http://www.springframework.org/schema/aop" 
+	xmlns:tx="http://www.springframework.org/schema/tx"
+	xmlns:util="http://www.springframework.org/schema/util"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans 
+       http://www.springframework.org/schema/beans/spring-beans.xsd
+       http://www.springframework.org/schema/context 
+       http://www.springframework.org/schema/context/spring-context.xsd
+       http://www.springframework.org/schema/tx 
+       http://www.springframework.org/schema/tx/spring-tx.xsd
+       http://www.springframework.org/schema/aop
+       http://www.springframework.org/schema/aop/spring-aop.xsd
+       http://www.springframework.org/schema/util 
+       http://www.springframework.org/schema/util/spring-util.xsd">
+    
+    <!-- 基类包，将标注Spring注解的类自动转化Bean，同时完成Bean的注入 -->
+    <context:component-scan base-package="com.artisan"/>
+    
+    <!-- 使用context命名空间，在xml文件中配置数据库的properties文件  -->
+    <context:property-placeholder location="classpath:jdbc.properties" />
+    
+    <!-- 配置数据源-->  
+    
+    <!-- 主站点的数据源 -->
+	<bean id="dataSourcePR" class="org.apache.commons.dbcp.BasicDataSource" 
+		destroy-method="close"
+		p:driverClassName="${jdbc.driverClassNamePR}"
+		p:url="${jdbc.urlPR}"
+		p:username="${jdbc.usernamePR}"
+		p:password="${jdbc.passwordPR}" />
+		
+ 	<!-- 备用站点的数据源 -->
+	<bean id="dataSourceDR" class="org.apache.commons.dbcp.BasicDataSource" 
+		destroy-method="close"
+		p:driverClassName="${jdbc.driverClassNameDR}"
+		p:url="${jdbc.urlDR}"
+		p:username="${jdbc.usernameDR}"
+		p:password="${jdbc.passwordDR}" /> 
+		
+	<!-- 主站点cc实例数据源 -->
+	<bean id="dataSourceCC" class="org.apache.commons.dbcp.BasicDataSource" 
+		destroy-method="close"
+		p:driverClassName="${jdbc.driverClassNameCC}"
+		p:url="${jdbc.urlCC}"
+		p:username="${jdbc.usernameCC}"
+		p:password="${jdbc.passwordCC}" />
+
+
+	<bean id="dynamicDataSource" class="com.artisan.dynamicDB.DynamicDataSource">
+		<property name="targetDataSources" ref="dynamicDatasourceMap" />
+		<!-- 默认数据源 -->
+		<property name="defaultTargetDataSource" ref="dataSourcePR" />
+	</bean>
+	
+	<!-- 指定lookupKey和与之对应的数据源 -->
+	<util:map id="dynamicDatasourceMap" key-type="java.lang.String">
+		<entry key="dataSourcePR" value-ref="dataSourcePR" />
+		<entry key="dataSourceDR" value-ref="dataSourceDR" />
+		<entry key="dataSourceCC" value-ref="dataSourceCC" />
+	</util:map>
+		
+	
+	<!-- 配置Jdbc模板  JdbcTemplate使用动态数据源的配置  -->
+	<bean id="jdbcTemplate" class="org.springframework.jdbc.core.JdbcTemplate"
+		p:dataSource-ref="dynamicDataSource" />
+		
+	<!-- 配置数据源注解的拦截规则，比如拦截service层或者dao层的所有方法，这里拦截了com.ztesoft.backupOracle下的全部方法 -->	
+	 <bean id="dataSourceAspect" class="com.artisan.dynamicDB.DataSourceAspect" />
+     <aop:config>
+         <aop:aspect ref="dataSourceAspect">
+             <!-- 拦截所有XXX方法 -->
+             <aop:pointcut id="dataSourcePointcut" expression="execution(* com.artisan..*(..))"/>
+             <aop:before pointcut-ref="dataSourcePointcut" method="intercept" />
+         </aop:aspect>
+     </aop:config>
+		
+	<!-- 配置事务管理器 -->
+	<bean id="transactionManager"
+		class="org.springframework.jdbc.datasource.DataSourceTransactionManager"
+		p:dataSource-ref="dynamicDataSource" />
+		
+	<!-- 通过AOP配置提供事务增强，让com.artisan包下所有Bean的所有方法拥有事务 -->
+	<aop:config proxy-target-class="true">
+		<aop:pointcut id="serviceMethod"
+			expression="(execution(* com.artisan..*(..))) and (@annotation(org.springframework.transaction.annotation.Transactional))" />
+		<aop:advisor pointcut-ref="serviceMethod" advice-ref="txAdvice" />
+	</aop:config>
+	<tx:advice id="txAdvice" transaction-manager="transactionManager">
+		<tx:attributes>
+			<tx:method name="*" />
+		</tx:attributes>
+	</tx:advice>
+</beans>
